@@ -1,0 +1,1796 @@
+---
+title: "Analysis effect of encoding types on ML model performance and credit status classification"
+author: "Çağlar Yalçın"
+date: "2023-06-14"
+output:
+  word_document: default
+  html_document:
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dev = "png",
+                      dpi = 300,
+                      echo = FALSE,
+                      cache = TRUE)
+```
+load all necessary labraries.
+
+```{r}
+library(tidyverse) 
+library(dplyr)
+library(missForest)
+library(missMethods)
+library(naniar)
+library(tidyr)
+library(mice)
+library(randomForest)
+library(caret)
+library(ggplot2)
+library(tidyr)
+library("writexl")
+library(keras)
+library(mlbench)
+library(dplyr)
+library(magrittr)
+library(neuralnet)
+library(e1071)
+library(nnet)
+library(stringr)
+library(rlang)
+library(Hmisc)
+library(stringr)
+library(lubridate)
+library(knitr)
+library(gapminder)
+library(ggcorrplot)
+library(waffle)
+library(ICSNP)
+library(factoextra)
+library(MASS)
+library(caTools)
+library(e1071)
+library(party)
+library(simputation)
+library(ggalt)
+library(GGally)
+library(ggmosaic)
+library(psych)
+library(rstatix )
+library(nortest)
+library(Boruta)
+library(glmnet)
+library(ggstatsplot)
+library(bestNormalize)
+library(car)
+library(robustbase)
+library(NeuralNetTools)
+library(nnet)
+library(performanceEstimation)
+library(xgboost)
+library(pROC)
+library(rpart.plot)
+library(randomForest)
+
+```
+
+```{r}
+data <- read.csv2("DAT.A.csv")
+set.seed(123)
+data <- delete_MCAR(data, 0.25, "Total_Amt_Chng_Q4_Q1")
+data <- delete_MCAR(data, 0.20, "Education_Level")
+data <- delete_MCAR(data, 0.10, "Total_Relationship_Count")
+data <- delete_MCAR(data, 0.20, "Credit_Limit")
+data <- delete_MCAR(data, 0.15, "Marital_Status")
+data <- delete_MCAR(data, 0.15, "Gender")
+
+```
+DATA TİDYİNG
+```{r}
+data <- data[, -c((ncol(data) - 1):ncol(data))]
+colnames(data)
+colnames(data)<-str_to_sentence(colnames(data))
+colnames(data) <- str_to_lower(colnames(data))
+colnames(data)[c(1,12,13,15,17,18,19,20)] <- c("client_number","inactive_month_12_mon",
+                                                "contacts_counts_12_mon","total_revolving_balance",
+                                                "total_amount_changed","total_transaction_amount",
+                                                "total_transaction_count","total_count_changed")
+```
+
+
+```{r}
+summary(data)
+str(data)
+```
+
+
+```{r}
+categoric_colums_index <- c(2,4,6,7,8,9)
+for (i in categoric_colums_index) {
+  col_name <- colnames(data)[i]
+  cat("Column:", col_name, "\n")
+  for (var in unique(data[, i])) {
+    count <- sum(data[, i] == var, na.rm = TRUE)
+    cat("Variable:", var, "- Count:", count, "\n")
+  }
+  cat("\n")
+}                                                  
+
+
+```
+
+```{r}
+data <- data %>% mutate(income_category = str_to_lower(income_category),
+                          card_category =str_to_lower(card_category),
+                          education_level = str_to_lower(education_level),
+                          marital_status = str_to_lower(marital_status),
+                          attrition_flag = str_to_lower(attrition_flag),
+                          gender = str_to_lower(gender))
+
+data <- data %>% mutate(gender=str_trim(gender,side="left"),
+                          education_level=str_trim(education_level,side="left"),
+                          marital_status=str_trim(marital_status,side="left"),
+                          income_category=str_trim(income_category,side="left"),
+                          card_category=str_trim(card_category,side="left"),
+                          attrition_flag=str_trim(attrition_flag,side="left"))
+
+
+           
+data[data == "unknown"] <- NA
+
+```
+
+```{r}
+for (i in categoric_colums_index) {
+  col_name <- colnames(data)[i]
+  cat("Column:", col_name, "\n")
+  for (var in unique(data[, i])) {
+    count <- sum(data[, i] == var, na.rm = TRUE)
+    cat("Variable:", var, "- Count:", count, "\n")
+  }
+  cat("\n")
+} 
+
+```
+
+
+
+```{r}
+summary(data)
+str(data)
+describe(data)
+
+```
+
+
+```{r}
+data<-data %>% mutate(gender = as.factor(gender),
+                        attrition_flag = as.factor(attrition_flag),
+                        dependent_count = as.factor(dependent_count),
+                        marital_status = as.factor(marital_status),
+                        income_category = as.factor(income_category),
+                        card_category = as.factor(card_category),
+                      contacts_counts_12_mon = as.factor(contacts_counts_12_mon),
+                        inactive_month_12_mon = as.factor(inactive_month_12_mon),
+                        total_relationship_count = as.factor(total_relationship_count),
+                      education_level = as.factor(education_level)
+                    
+    )
+data <- data %>% select(-client_number)
+```
+
+```{r}
+str(data)
+```
+
+
+
+
+STRUCTURE CHECK BEFORE FEATURE ENGİNEERİNG
+
+densitys
+Table 1,2,3
+```{r}
+ggp3 <- ggplot(data, aes(x = customer_age)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..),binwidth=6) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+
+ggp3 <- ggplot(data, aes(x = credit_limit)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+
+ggp3 <- ggplot(data, aes(x = avg_open_to_buy)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+
+ggp3 <- ggplot(data, aes(x = months_on_book)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..),binwidth=6) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+
+
+ggp3 <- ggplot(data, aes(x = total_transaction_amount)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+ggp3 <- ggplot(data, aes(x = total_transaction_count)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+
+ggp3 <- ggplot(data, aes(x = total_count_changed)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+ggp3 <- ggplot(data, aes(x = total_amount_changed)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+ggp3 <- ggplot(data, aes(x = avg_utilization_ratio)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+ggp3 <- ggplot(data, aes(x = total_revolving_balance)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3
+
+```
+boxplots
+Table 1,2,3.
+```{r}
+ggplot(data, aes(x=customer_age)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+
+ ggplot(data, aes(x=credit_limit)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+ 
+ ggplot(data, aes(x=avg_open_to_buy)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+ 
+  ggplot(data, aes(x=months_on_book)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+  
+  ggplot(data, aes(x=total_transaction_amount)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+  
+   ggplot(data, aes(x=total_transaction_count)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+   
+    ggplot(data, aes(x=total_count_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+    
+     ggplot(data, aes(x=total_amount_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+    
+        ggplot(data, aes(x=avg_utilization_ratio)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+        
+         ggplot(data, aes(x=total_revolving_balance)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+```
+,FUTURE ENGİNEERİNG
+```{r}
+summary(data_fe)
+data_fe <- data %>% mutate(months_on_book = ifelse(months_on_book == 36, NA, months_on_book))
+
+mel <- data.frame(data_fe$months_on_book,data_fe$customer_age)
+imp1 <-mice(data = mel ,m=5,maxit=5,meth = "pmm",seed=500)
+
+ mel <- complete(imp1,1)
+ data_fe$months_on_book <- mel$data_fe.months_on_book
+
+data_fe <- data_fe %>% mutate(avg_utilization_ratio = ifelse(avg_utilization_ratio == 0, NA, avg_utilization_ratio))
+
+
+data_fe <- data_fe %>% mutate(total_revolving_balance = ifelse(total_revolving_balance == 0, NA, total_revolving_balance))
+data_fe <- data_fe %>% mutate(total_revolving_balance = ifelse(total_revolving_balance == 2517, NA, total_revolving_balance))
+
+data_fe <- data_fe %>% mutate(credit_limit = ifelse(credit_limit == 34516, NA, credit_limit))
+data_fe <- data_fe %>% mutate(credit_limit = ifelse(credit_limit == 1438.3, NA, credit_limit))
+data_fe <- data_fe %>% mutate(credit_limit = ifelse(avg_open_to_buy == 34516, NA, credit_limit))
+
+
+
+
+trans1 <- bestNormalize(data_fe$credit_limit)
+trans2 <- bestNormalize(data_fe$avg_utilization_ratio)
+trans3 <- bestNormalize(data_fe$avg_open_to_buy)
+trans4 <- bestNormalize(data_fe$total_count_changed)
+trans5 <- bestNormalize(data_fe$total_amount_changed)
+trans6 <- bestNormalize(data_fe$total_transaction_amount)
+trans7 <- bestNormalize(data_fe$total_revolving_balance)
+
+### we get better disstibitions using order log but we remain karekök dağılımı ile devam ediyoruz 
+data_fe$credit_limit<-trans1$other_transforms$sqrt_x$x.t
+data_fe$avg_utilization_ratio<-trans2$other_transforms$sqrt_x$x.t
+data_fe$avg_open_to_buy<-trans3$other_transforms$sqrt_x$x.t
+data_fe$total_count_changed<-trans4$other_transforms$sqrt_x$x.t
+data_fe$total_amount_changed<-trans5$other_transforms$sqrt_x$x.t
+data_fe$total_transaction_amount<-trans6$other_transforms$sqrt_x$x.t
+data_fe$total_revolving_balance<-trans7$other_transforms$sqrt_x$x.t
+
+
+scaler <- function(x){
+  (x - median(x)) / (mad(x))
+}
+data_fe <- data_fe %>%
+  mutate_at(c("customer_age","months_on_book","total_transaction_count"), scaler)
+
+
+
+```
+
+CHECKED FUTURE ENGİNERİNG VALİDATİON
+
+densities 
+Table 1,2,3
+```{r}
+
+
+
+ggp3_ <- ggplot(data_fe, aes(x = credit_limit)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+ggp3_ <- ggplot(data_fe, aes(x = avg_open_to_buy)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+ggp3_ <- ggplot(data_fe, aes(x = total_transaction_amount)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3 <- ggplot(data_fe, aes(x = total_transaction_count)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+ggp3_ <- ggplot(data_fe, aes(x = total_count_changed)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3 <- ggplot(data_fe, aes(x = total_amount_changed)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3_ <- ggplot(data_fe, aes(x = avg_utilization_ratio)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3_ <- ggplot(data_fe, aes(x = total_revolving_balance)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+
+
+
+
+```
+boxplots
+Table 1,2,3.
+```{r}
+
+
+ ggplot(data_fe, aes(x=credit_limit)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+ 
+ ggplot(data_fe, aes(x=avg_open_to_buy)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+ 
+ 
+  
+  ggplot(data_fe, aes(x=total_transaction_amount)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+  
+   ggplot(data_fe, aes(x=total_transaction_count)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+   
+    ggplot(data_fe, aes(x=total_count_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+    
+     ggplot(data_fe, aes(x=total_amount_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+    
+        ggplot(data_fe, aes(x=avg_utilization_ratio)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+        
+         ggplot(data_fe, aes(x=total_revolving_balance)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+```
+
+if there is a outlier still apply wisconsine and check
+```{r}
+
+
+
+data_fe <- data_fe %>% 
+ mutate(
+    total_count_changed = ifelse(
+      total_count_changed > quantile(total_count_changed, 0.65, na.rm = TRUE) + 1.5 * IQR(total_count_changed, na.rm = TRUE),
+      max(total_count_changed[total_count_changed != max(total_count_changed)]),total_count_changed 
+    ),
+    ifelse(
+      total_count_changed < quantile(total_count_changed, 0.45, na.rm = TRUE) - 1.5 * IQR(total_count_changed, na.rm = TRUE),
+      min(total_count_changed[total_count_changed != min(total_count_changed)]),
+      total_count_changed  
+    )
+  )
+data_fe$total_count_changed <- data_fe$`ifelse(...)`
+data_fe <- data_fe %>% select(-`ifelse(...)`)
+
+data_fe <- data_fe %>% 
+ mutate(
+    total_transaction_count = ifelse(
+      total_transaction_count > quantile(total_transaction_count, 0.6, na.rm = TRUE) + 1.5 * IQR(total_transaction_count, na.rm = TRUE),
+      max(total_transaction_count[total_transaction_count != max(total_transaction_count)]),
+      total_transaction_count  
+    ),
+    ifelse(
+      total_transaction_count < quantile(total_transaction_count, 0.4, na.rm = TRUE) - 1.5 * IQR(total_transaction_count, na.rm = TRUE),
+      min(total_transaction_count[total_transaction_count != min(total_transaction_count)]),
+      total_transaction_count  
+    )
+  )
+
+data_fe$total_transaction_count <- data_fe$`ifelse(...)`
+data_fe <- data_fe %>% select(-`ifelse(...)`)
+
+data_fe <- data_fe %>% 
+ mutate(
+    total_amount_changed = ifelse(
+      total_amount_changed > quantile(total_amount_changed, 0.65, na.rm = TRUE) + 1.5 * IQR(total_amount_changed, na.rm = TRUE),
+      max(total_amount_changed[total_amount_changed != max(total_amount_changed)]),
+      total_amount_changed  
+    ),
+    ifelse(
+      total_amount_changed < quantile(total_amount_changed, 0.45 ,na.rm = TRUE) - 1.5 * IQR(total_amount_changed, na.rm = TRUE),
+      min(total_amount_changed[total_amount_changed != min(total_amount_changed)]),
+      total_amount_changed  
+    )
+  )
+
+data_fe$total_amount_changed <- data_fe$`ifelse(...)`
+data_fe <- data_fe %>% select(-`ifelse(...)`)
+
+
+data_fe <- data_fe %>% 
+ mutate(
+    total_transaction_amount = ifelse(
+      total_transaction_amount > quantile(total_transaction_amount, 0.6, na.rm = TRUE) + 1.5 * IQR(total_transaction_amount, na.rm = TRUE),
+      max(total_transaction_amount[total_transaction_amount != max(total_transaction_amount)]),
+      total_transaction_amount  # Koşul yanlış olduğunda döndürülecek değeri ekleyin
+    ),
+    ifelse(
+      total_transaction_amount < quantile(total_transaction_amount, 0.4 ,na.rm = TRUE) - 1.5 * IQR(total_transaction_amount, na.rm = TRUE),
+      min(total_transaction_amount[total_transaction_amount != min(total_transaction_amount)]),
+      total_transaction_amount  # Koşul yanlış olduğunda döndürülecek değeri ekleyin
+    )
+  )
+data_fe$total_transaction_amount <- data_fe$`ifelse(...)`
+data_fe <- data_fe %>% select(-`ifelse(...)`)
+
+data_fe <- data_fe %>% 
+ mutate(
+    total_revolving_balance = ifelse(
+      total_revolving_balance > quantile(total_revolving_balance, 0.65, na.rm = TRUE) + 1.5 * IQR(total_revolving_balance, na.rm = TRUE),
+      max(total_revolving_balance[total_revolving_balance != max(total_revolving_balance)]),
+      total_revolving_balance  # Koşul yanlış olduğunda döndürülecek değeri ekleyin
+    ),
+    ifelse(
+      total_revolving_balance < quantile(total_revolving_balance, 0.45 ,na.rm = TRUE) - 1.5 * IQR(total_revolving_balance, na.rm = TRUE),
+      min(total_revolving_balance[total_revolving_balance != min(total_revolving_balance)]),
+      total_revolving_balance  # Koşul yanlış olduğunda döndürülecek değeri ekleyin
+    )
+  )
+
+data_fe$total_revolving_balance <- data_fe$`ifelse(...)`
+data_fe <- data_fe %>% select(-`ifelse(...)`)
+#### check 
+ggplot(data_fe, aes(x=total_transaction_amount)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+
+ggplot(data_fe, aes(x=total_amount_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+    
+        ggplot(data_fe, aes(x=total_transaction_count)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+        
+         ggplot(data_fe, aes(x=total_count_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+      ggplot(data_fe, aes(x=total_revolving_balance)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+
+```
+
+EDA
+response variable
+Table 4
+```{r}
+t = table(data_fe$attrition_flag)
+df = data.frame(t)
+df
+
+ggplot(df,aes(x=Var1,y=Freq)) +geom_segment(aes(x=Var1, xend=Var1, y=0, yend=Freq),size=1,color="blue", linetype="dotdash")+
+  geom_point( color="skyblue", size=7, alpha=0.7, shape=21, stroke=2) +
+  theme_light() +
+  coord_flip() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+xlab("") +
+  ylab("freg")
+help(linetype)
+```
+response variable and factors 
+Table 5,6,7
+```{r}
+mosaicplot(table(data_fe$education_level,data_fe$attrition_flag),color = TRUE)
+mosaicplot( ~ income_category+attrition_flag,data=data_fe,color = TRUE)
+mosaicplot(table(data_fe$card_category,data_fe$attrition_flag),color = TRUE)
+mosaicplot( ~ marital_status+attrition_flag,data=data_fe,color = TRUE)
+mosaicplot( ~ gender+attrition_flag,data=data_fe,color = TRUE)
+mosaicplot( ~ total_relationship_count+attrition_flag,data=data_fe,color = TRUE)
+mosaicplot( ~ `inactive_month_12_mon`+attrition_flag,data=data_fe,color = TRUE)
+mosaicplot( ~ `contacts_counts_12_mon`+attrition_flag,data=data_fe,color = TRUE)
+
+
+```
+response varaibe and numeric violin plots and descriptive stats
+Table 8,9,10
+```{r}
+plt <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = credit_limit
+)
+plt
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$credit_limit)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$credit_limit)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+
+
+plt2 <- ggbetweenstats(
+  data= data_fe,
+  x = attrition_flag,
+  y = customer_age
+)
+plt2
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$customer_age)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$customer_age)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+pl3 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = months_on_book
+)
+pl3
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$months_on_book)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$months_on_book)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+plt4 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = total_revolving_balance
+)
+plt4
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$total_revolving_balance)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$total_revolving_balance)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+plt5 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = avg_open_to_buy
+)
+plt5
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$avg_open_to_buy)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$avg_open_to_buy)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+plt6 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = total_amount_changed
+)
+plt6
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$total_amount_changed)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$total_amount_changed)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+plt7 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = total_transaction_amount
+)
+plt7
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$total_transaction_amount)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$total_transaction_amount)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+plt8 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = total_transaction_count
+)
+plt8
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$total_transaction_count)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$total_transaction_count)  
+s <- rbind(a,b)
+
+row.names(s) <- c("group 1","group 2")
+print(s)
+plt9 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = total_count_changed
+)
+plt9
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$total_count_changed)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$total_count_changed)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+plt10 <- ggbetweenstats(
+  data = data_fe,
+  x = attrition_flag,
+  y = avg_utilization_ratio
+)
+plt10
+descriptive_stats <- data_fe %>% filter(attrition_flag =="existing customer") 
+a<-describe(descriptive_stats$avg_utilization_ratio)
+descriptive_stats2 <- data_fe %>% filter(attrition_flag =="attrited customer") 
+b<-describe(descriptive_stats2$avg_utilization_ratio)  
+s <- rbind(a,b)
+row.names(s) <- c("group 1","group 2")
+print(s)
+```
+
+
+corrplot ,ggpairs,scatter plots
+Table 11
+```{r}
+x<- data_fe %>% select_if(is.numeric)
+x <- na.omit(x)
+res <- cor(x, method="pearson")
+corrplot::corrplot(res, method= "color", order = "hclust")
+
+x1 <-  subset(x, select = c( "customer_age","avg_utilization_ratio","avg_open_to_buy",
+                             "months_on_book"))
+GGally::ggpairs(x1)
+
+dfmel <- data_fe %>% select(c(total_transaction_count,total_transaction_amount))
+
+# Groups
+species <- data_fe$attrition_flag
+
+# Number of groups
+l <- length(unique(species))
+
+plot(dfmel,
+      pch = 20,
+      bg = hcl.colors(l, "Temps")[species],
+      col = hcl.colors(l, "Temps")[species])
+
+
+
+
+
+```
+missing check 
+Table 12,13
+```{r}
+str(data_fe)
+vis_miss(data_fe)
+gg_miss_var(data_fe)
+gg_miss_var(data_fe, facet = attrition_flag)
+gg_miss_upset(data_fe)
+```
+
+impute
+```{r}
+library(mice)
+impo <- mice(data= data ,m=1,maxit=1,meth = "pmm",seed=500)
+data <- complete(impo,1)
+imputing <- mice(data= data_fe ,m=1,maxit=1,meth = "pmm",seed=500)
+data_fe <- complete(imputing,1)
+
+```
+compare
+Table 14,15,16
+```{r}
+densityplot(imputing)
+data_fe <- complete(imputing,1)
+vis_miss(data_fe)
+#install.packages("devtools")
+#devtools::install_github("amices/ggmice")
+library(ggmice)
+ggmice(imputing, aes(credit_limit, total_transaction_amount)) +
+  geom_point()
+ggmice(imputing, aes(education_level)) +
+  geom_bar()
+ggmice(imputing, aes(marital_status)) +
+  geom_bar()
+
+ggmice(imputing, aes(x = .imp, y = total_amount_changed)) +
+  geom_jitter(height = 0) +
+  geom_boxplot(fill = "white", alpha = 0.75, outlier.shape = NA) +
+  labs(x = "Imputation number")
+```
+Check distribitions individial after  imputing
+densitiyler
+```{r}
+ggp3_ <- ggplot(data_fe, aes(x = credit_limit)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+ggp3_ <- ggplot(data_fe, aes(x = avg_open_to_buy)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+ggp3_ <- ggplot(data_fe, aes(x = total_transaction_amount)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3 <- ggplot(data_fe, aes(x = total_transaction_count)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+ggp3_ <- ggplot(data_fe, aes(x = total_count_changed)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3 <- ggplot(data_fe, aes(x = total_amount_changed)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3_ <- ggplot(data_fe, aes(x = avg_utilization_ratio)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+ggp3_ <- ggplot(data_fe, aes(x = total_revolving_balance)) +    # Draw histogram & density
+  geom_histogram(fill="#69b3a2",aes(y = ..density..)) + 
+  geom_density(col = "#1b98e0", size = 2) 
+ 
+ggp3_ 
+
+
+
+
+
+
+```
+boxplotlar
+```{r}
+
+
+ ggplot(data_fe, aes(x=credit_limit)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+ 
+ ggplot(data_fe, aes(x=avg_open_to_buy)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+ 
+ 
+  
+  ggplot(data_fe, aes(x=total_transaction_amount)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+  
+   ggplot(data_fe, aes(x=total_transaction_count)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+   
+    ggplot(data_fe, aes(x=total_count_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+    
+     ggplot(data_fe, aes(x=total_amount_changed)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3
+    )
+    
+        ggplot(data_fe, aes(x=avg_utilization_ratio)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+        
+         ggplot(data_fe, aes(x=total_revolving_balance)) + 
+    geom_boxplot(
+    
+        color="blue",
+        fill="blue",
+        alpha=0.2,
+     
+        notch=TRUE,
+        notchwidth = 0.8,
+      
+        outlier.colour="red",
+        outlier.fill="red",
+        outlier.size=3)
+```
+
+chisuare test
+```{r}
+ki = table(data_fe$attrition_flag,data_fe$gender)
+chisq.test(ki)
+ki2 = table(data_fe$attrition_flag,data_fe$education_level)
+chisq.test(ki2)
+ki3 = table(data_fe$attrition_flag,data_fe$income_category)
+chisq.test(ki3)
+ki4 = table(data_fe$attrition_flag,data_fe$card_category)
+chisq.test(ki4)
+ki5 = table(data_fe$gender,data_fe$income_category)
+chisq.test(ki5)
+ki6 = table(data_fe$gender,data_fe$education_level)
+chisq.test(ki6)
+ki7 = table(data_fe$`inactive_month_12_mon`,data_fe$attrition_flag)
+chisq.test(ki7)
+ki8 = table(data_fe$`contacts_counts_12_mon`,data_fe$attrition_flag)
+chisq.test(ki8)
+ki9 = table(data_fe$total_relationship_count,data_fe$attrition_flag)
+chisq.test(ki9)
+```
+nonparemetric tests
+
+```{r}
+ad.test(data_fe$credit_limit)
+wilcox.test(credit_limit ~ attrition_flag,data = data_fe,exact=F)
+
+ad.test(data_fe$customer_age)
+wilcox.test(customer_age ~ attrition_flag,data= data_fe,exact=F)
+
+ad.test(data_fe$months_on_book)
+wilcox.test(months_on_book ~ attrition_flag,data= data_fe,exact=F)
+
+ad.test(data_fe$total_revolving_balance)
+wilcox.test(total_revolving_balance ~ attrition_flag,data = data_fe,exact=F)
+
+ad.test(data_fe$avg_open_to_buy)
+wilcox.test(avg_open_to_buy ~ attrition_flag,data = data_fe,exact=F)
+
+ad.test(data_fe$total_amount_changed)
+wilcox.test(total_amount_changed ~ attrition_flag,data = data_fe,exact=F)
+
+ad.test(data_fe$total_transaction_amount)
+wilcox.test(total_transaction_amount ~ attrition_flag,data = data_fe,exact=F)
+
+ad.test(data_fe$total_transaction_count)
+wilcox.test(total_transaction_count ~ attrition_flag,data = data_fe,exact=F)
+
+ad.test(data_fe$total_count_changed)
+wilcox.test(total_count_changed ~ attrition_flag,data = data_fe,exact=F)
+
+ad.test(data_fe$avg_utilization_ratio)
+wilcox.test(avg_utilization_ratio ~ attrition_flag,data = data_fe,exact=F)
+```
+
+
+
+one hot encoding 
+```{r}
+
+extracted_column <- as.data.frame(data_fe$attrition_flag)
+remaining_data_fe <- subset(data_fe, select = -attrition_flag)
+#extracted_column <- ifelse(extracted_column == "existing customer", "1", 
+#                           ifelse(extracted_column == "attrited customer", "0", extracted_column))
+#extracted_column <- as.numeric(extracted_column)
+extracted_column <- data.frame(extracted_column)
+
+dummy <- dummyVars(" ~ .", data=remaining_data_fe)
+data_fe_ohe1 <- data.frame(predict(dummy, newdata=remaining_data_fe))
+data_fe_ohe <- cbind(data_fe_ohe1,extracted_column)
+colnames(data_fe_ohe)[57] <- "attrition_flag"
+data_fe_ohe <- data_fe_ohe %>%
+  select(attrition_flag, everything())
+```
+
+future selection pca
+Table 17,18
+```{r}
+set.seed(123)
+pca1 <- prcomp(data_fe_ohe1)
+
+summary(pca1)
+
+pca1$x %>% head(5)
+as.matrix(data_fe_ohe1)%*%as.matrix(pca1$rotation) %>% head(5)
+pca1$rotation
+pca1$sdev
+### checked pcas features
+fviz_eig(pca1,addlabels=TRUE)
+pca<-pca1$x[,1:15]
+head(pca)
+res1 <- cor(pca, method="pearson")
+corrplot::corrplot(res1, method= "color")
+cor(data_fe_ohe1,pca)
+
+fviz_pca_var(pca1, col.var = "contrib")+ scale_color_gradient2( low="skyblue", mid="green",high="red", midpoint=96, space = "Lab")
+```
+future selection lasso
+
+```{r}
+x <- model.matrix(attrition_flag~., data_fe_ohe)[,-1]
+y <- ifelse(data_fe_ohe$attrition_flag == "existing customer", 1, 0)
+library(car)
+
+set.seed(24)
+cv.lasso <- cv.glmnet(x, data_fe_ohe$attrition_flag, alpha = 1, family = "binomial")
+plot(cv.lasso)
+cv.lasso$lambda.min
+
+best_model <- glmnet(x, y, alpha = 1, lambda = cv.lasso$lambda.min)
+coef(best_model)
+print(best_model)
+y_predicted <- predict(best_model, s = cv.lasso$lambda.min, newx = x)
+
+sst <- sum((y - mean(y))^2)
+sse <- sum((y_predicted - y)^2)
+
+rsq <- 1 - sse/sst
+rsq
+
+set.seed(23)
+boruta.dia2_train <- Boruta(attrition_flag~., data = data_fe_ohe, doTrace = 1)
+print(boruta.dia2_train)
+
+boruta.dia2 <- TentativeRoughFix(boruta.dia2_train)
+print(boruta.dia2)
+
+plot(boruta.dia2, xlab = "", xaxt = "n")
+
+
+getSelectedAttributes(boruta.dia2, withTentative = F)
+
+```
+
+future selection for statistical method in order to easy interpretation wtih boruta
+```{r}
+data.fs = data_fe_ohe[, c("gender.f", "marital_status.single", "card_category.blue", "inactive_month_12_mon.0", "inactive_month_12_mon.3", "contacts_counts_12_mon.4", "credit_limit", "total_amount_changed", "total_count_changed", "customer_age", "dependent_count.0", "income_category..60k....80k", "card_category.silver", "total_relationship_count.2", "total_relationship_count.5", "inactive_month_12_mon.1", "inactive_month_12_mon.4", "contacts_counts_12_mon.2", "contacts_counts_12_mon.5", "total_revolving_balance", "marital_status.married","income_category.less.than..40k","months_on_book",
+                       "total_relationship_count.3","total_relationship_count.6","inactive_month_12_mon.2","contacts_counts_12_mon.0","contacts_counts_12_mon.3","contacts_counts_12_mon.6","total_transaction_count")]
+data.fs <- cbind(data.fs,extracted_column)
+colnames(data.fs)[31] <- "attrition_flag"
+data.fs <- data.fs %>%
+  select(attrition_flag, everything())
+```
+
+train test spit and conduct control for k hold cross validation, record both ohe data and without ohe data and apply all models both two train test datas and compare results.
+```{r}
+train_indices2 <- createDataPartition(data_fe$attrition_flag, p = 0.8, list = FALSE)
+train_data2 <- data_fe[train_indices, ]
+test_data2<- data_fe[-train_indices, ]
+train_indices4 <- createDataPartition(data_fe_ohe$attrition_flag, p = 0.8, list = FALSE)
+train_data4 <- data_fe_ohe[train_indices, ]
+test_data4<- data_fe_ohe[-train_indices, ]
+ctrl <- trainControl(method="cv", 
+                          number=10, 
+                          savePredictions="all",
+                          classProbs=TRUE)
+
+```
+GLM 
+```{r}
+
+str(train_data2)
+set.seed(1985)
+train_data2$attrition_flag <-as.factor(train_data2$attrition_flag)
+levels(test_data2$attrition_flag) <- make.names(levels(train_data2$attrition_flag))
+set.seed(1985)
+
+
+levels(train_data$attrition_flag) <- make.names(levels(train_data$attrition_flag))
+train_data$attrition_flag <- as.factor(train_data$attrition_flag)
+modelglm <- train(attrition_flag ~ ., data=train_data2, 
+                method="glm", 
+                family=binomial, 
+                trControl=ctrl)
+summary(modelglm)
+pred.glm <- predict(modelglm, newdata = train_data2,type ="raw")
+levels(train_data2$attrition_flag) <- make.names(levels(train_data2$attrition_flag))
+
+cm<- confusionMatrix(train_data2$attrition_flag,pred.glm)
+cm
+
+pred.glm <- predict(modelglm, newdata = test_data2,type ="raw")
+levels(test_data2$attrition_flag) <- make.names(levels(test_data2$attrition_flag))
+
+cm<- confusionMatrix(test_data2$attrition_flag,pred.glm)
+cm
+
+
+
+roc_score=roc(test_data$attrition_flag, as.numeric(pred.tree.over))
+plot(roc_score)
+
+```
+
+check validation of regression
+Table 21 ,22,23
+```{r}
+vif(modelglm$finalModel)
+varImp(modelglm)
+ld.vars <- attributes(alias(modelglm)$Complete)$dimnames[[1]]
+
+
+##for detect linearity
+probabilities <- predict(modelglm$finalModel, type = "response")
+predicted.classes <- ifelse(probabilities > 0.5, "pos", "neg")
+head(predicted.classes)
+mydata <- train_data %>%
+  dplyr::select_if(is.numeric)
+predictors <- colnames(mydata)
+mydata <- mydata %>%
+  mutate(logit = log(probabilities/(1-probabilities))) %>%
+  gather(key = "predictors", value = "predictor.value", -logit)
+mydata$predictor.value <- sin(mydata$predictor.value)
+ggplot(mydata, aes(logit, predictor.value))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") +
+  theme_bw() +
+  facet_wrap(~predictors, scales = "free_y")
+
+hist((mydata$logit)) ## for detect distribition of response variable
+
+plot(modelglm$finalModel, which = 4, id.n = 3) ### for detect outlier influence  points and removing
+model.datafin <- augment(modelglm$finalModel) %>% 
+  mutate(index = 1:n())
+model.datafin %>% top_n(3, .cooksd)
+ggplot(model.datafin, aes(index, .std.resid)) + 
+  geom_point(aes(color = .outcome), alpha = .5) +
+  theme_bw()
+model.datafin %>% 
+  filter(abs(.std.resid) > 1)
+summary(modelglm$finalModel)
+
+```
+select new variable for glm
+```{r}
+
+# train_data_glm <- train_data_glm %>% select(c(attrition_flag,dependent_count1,dependent_count4,marital_statusmarried,`income_category$40k - #$60k`,`income_category$60k - $80k` ,total_relationship_count3,total_relationship_count4,
+#                                              total_relationship_count5,total_relationship_count6,contacts_counts_12_mon1,
+#                                              contacts_counts_12_mon2,contacts_counts_12_mon5,contacts_counts_12_mon6 ,
+#                                              total_revolving_balance,total_transaction_amount,total_transaction_count,dependent_count3,)
+## this
+## or this 
+train_data_glm <- model.datafin %>% select(c(genderm,dependent_count5,dependent_count3,total_revolving_balance,total_transaction_amount,
+                                              total_transaction_count,`education_levelpost-graduate`
+                                             ))
+colnames(train_data_glm)[1] <- "attrition_flag"
+a<-cbind(model.datafin$.outcome,train_data_glm)
+colnames(a)[1] <- "attrition_flag"
+
+```
+final  glm
+```{r}
+modelglm2 <- train(attrition_flag ~ ., data=a, 
+                method="glm", 
+                family=binomial, 
+                trControl=ctrl)
+summary(modelglm2)
+vif(modelglm2$finalModel)
+```
+final form glm
+Table 24,25,26
+```{r}
+##for detect linearity
+probabilities <- predict(modelglm$finalModel, type = "response")
+predicted.classes <- ifelse(probabilities > 0.5, "pos", "neg")
+head(predicted.classes)
+mydata <- train_data %>%
+  dplyr::select_if(is.numeric)
+predictors <- colnames(mydata)
+mydata <- mydata %>%
+  mutate(logit = log(probabilities/(1-probabilities))) %>%
+  gather(key = "predictors", value = "predictor.value", -logit)
+mydata$predictor.value <- sin(mydata$predictor.value)
+ggplot(mydata, aes(logit, predictor.value))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") +
+  theme_bw() +
+  facet_wrap(~predictors, scales = "free_y")
+
+hist((mydata$logit)) ## for detect distribition of response variable
+
+plot(modelglm$finalModel, which = 4, id.n = 3) ### for detect outlier influence  points and removing
+model.datafin <- augment(modelglm$finalModel) %>% 
+  mutate(index = 1:n())
+model.datafin %>% top_n(3, .cooksd)
+ggplot(model.datafin, aes(index, .std.resid)) + 
+  geom_point(aes(color = .outcome), alpha = .5) +
+  theme_bw()
+model.datafin %>% 
+  filter(abs(.std.resid) > 1)
+summary(modelglm$finalModel)
+```
+final predict
+```{r}
+pred.glm <- predict(modelglm2, newdata = test_data4,type ="raw")
+pred.glm2<- predict(modelglm2, newdata = train_data4,type ="raw")
+levels(test_data$attrition_flag) <- make.names(levels(train_data$attrition_flag))
+cm2glm<- confusionMatrix(test_data2$attrition_flag,pred.tree.over)
+cm2glm
+cm22<- confusionMatrix(test_data2$attrition_flag,pred.tree.over)
+cm22
+```
+
+svm tune and predict
+Table 27
+```{r}
+set.seed(412)
+
+####WİTHOUT ENCODİNG
+train_data2$attrition_flag <-as.factor(train_data2$attrition_flag)
+levels(test_data2$attrition_flag) <- make.names(levels(train_data2$attrition_flag))
+
+tunegrid <- expand.grid(C = c(1^( 2:9)),sigma = c(0.001 ,.005 ,0.01 ,0.1))
+
+modelsvm <- train(attrition_flag ~ ., data =train_data2, method = "svmRadial",tuneGrid=tunegrid ,trControl = ctrl,search = "grid")
+modelsvm$bestTune
+pred.svm <- predict(modelsvm, newdata = train_data2,type ="raw")
+cm<- confusionMatrix(train_data2$attrition_flag,pred.svm)
+
+cm
+
+pred.svm <- predict(modelsvm, newdata = test_data2,type ="raw")
+cm.<- confusionMatrix(test_data2$attrition_flag,pred.svm)
+
+cm.
+
+roc_score4=roc(test_data4$attrition_flag, as.numeric(pred.svm))
+plot(roc_score4)
+plot(modelsvm)
+#for plott
+model = svm(attrition_flag ~ ., data = train_data4,kernel = 'radial', cost =1,sigma =0.1)
+plot(model,train_data4,total_transaction_count~total_transaction_amount,color.palette = heat.colors)
+
+
+
+####WİT ENCODİNG
+train_data4$attrition_flag <-as.factor(train_data4$attrition_flag)
+levels(test_data2$attrition_flag) <- make.names(levels(train_data2$attrition_flag))
+
+modelsvm2 <- train(attrition_flag ~ ., data =train_data4, method = "svmRadial",tuneGrid=tunegrid, trControl = ctrl,search = "grid")
+modelsvm2$bestTune
+pred.svm2 <- predict(modelsvm2, newdata = train_data4,type ="raw")
+cm2<- confusionMatrix(train_data2$attrition_flag,pred.svm2)
+
+cm2
+
+pred.svm2 <- predict(modelsvm2, newdata = test_data4,type ="raw")
+cm.2<- confusionMatrix(test_data4$attrition_flag,pred.svm2)
+
+cm.2
+
+roc_score4.2=roc(test_data4$attrition_flag, as.numeric(pred.svm2))
+plot(roc_score4)
+plot(modelsvm2)
+#for plott
+model2 = svm(attrition_flag ~ ., data = train_data4,kernel = 'radial', cost =1,sigma =0.1)
+plot(model2,train_data4,total_transaction_count~total_transaction_amount,color.palette = heat.colors)
+```
+weighted svm tune and predict
+```{r}
+svm_model_weighted <- svm(attrition_flag ~ ., data = train_data4,type = "C-classification", kernel = 'linear', cost =1,class.weights = c("attrited.customer" = 5, "existing.customer" = 1))
+pred_svm_wg = predict(svm_model_weighted, newdata = test_data4)
+attributes(pred_svm_wg )$names <- NULL
+# pred_svm_wg  <- factor(pred_svm_wg , levels = levels(test_data4$attrition_flag))
+confusion_matrix_svm2 <- confusionMatrix(data = pred_svm_wg, reference = test_data4$attrition_flag)
+confusion_matrix_svm2
+roc_score3=roc(test_data4$attrition_flag, as.numeric(pred_svm_wg)) ##0.8598
+plot(roc_score3)
+plot(svm_model_weighted,train_data4,total_transaction_count~total_transaction_amount,color.palette = heat.colors)
+```
+RF tune and predict
+Table 24,29
+```{r}
+### without encoding
+
+
+
+set.seed(132)
+tunegrid <- expand.grid(.mtry=c(1:25))
+model3 <- train(attrition_flag~., data = train_data2,metrİC = "Kappa" ,method = "rf", tuneGrid=tunegrid,
+                trControl = ctrl)
+
+set.seed(120)  # Setting seed
+classifier_RF = randomForest(x = train_data2[-1],
+                             y = train_data2$attrition_flag,
+                             mtyr = 16,
+                             ntree = 500)
+classifier_RF
+set.seed(145)
+pred_rf2 = predict(classifier_RF, newdata = train_data2)
+pred_rf = predict(classifier_RF, newdata = test_data2)
+confusion_matrix_rf2 <- confusionMatrix(data = pred_rf2, reference = train_data2$attrition_flag)
+confusion_matrix_rf2
+confusion_matrix_rf <- confusionMatrix(data = pred_rf, reference = test_data2$attrition_flag)
+confusion_matrix_rf
+roc_score2=roc(test_data2$attrition_flag, as.numeric(pred_rf)) ##0.8941
+plot(roc_score2)
+plot(model3)
+plot(classifier_RF)
+varimp(classifier_RF)
+
+##with encoding
+
+model3 <- train(attrition_flag~., data = train_data4,metrİC = "Kappa" ,method = "rf", tuneGrid=tunegrid,
+                trControl = ctrl)
+
+set.seed(120)  # Setting seed
+classifier_RF = randomForest(x = train_data4[-1],
+                             y = train_data4$attrition_flag,
+                             mtyr = 16,
+                             ntree = 500)
+classifier_RF
+set.seed(145)
+pred_rf = predict(classifier_RF, newdata = train_data4)
+
+confusion_matrix_rf <- confusionMatrix(data = pred_rf, reference = train_data4$attrition_flag)
+confusion_matrix_rf
+
+pred_rf2 = predict(classifier_RF, newdata = test_data4)
+
+confusion_matrix_rf <- confusionMatrix(data = pred_rf2, reference = test_data4$attrition_flag)
+confusion_matrix_rf
+
+roc_score2=roc(test_data4$attrition_flag, as.numeric(pred_rf2)) ##0.8941
+plot(roc_score2)
+plot(varimp(classifier_RF))
+
+varImpPlot(classifier_RF)
+
+
+```
+xgboost tune and predict
+Table 30 31
+```{r}
+#without Encoding
+set.seed(123)
+tunegrid <-  expand.grid(max_depth = c(3, 5, 7), 
+                         nrounds = (1:10)*50,    # number of trees
+                         # default values below
+                         eta = 0.3,
+                         gamma = 0,
+                         subsample = 1,
+                         min_child_weight = 1,
+                         colsample_bytree = 0.6)
+modelxg <- train(
+  attrition_flag ~., data = train_data2, method = "xgbTree",metric ="Kappa",tuneGrid=tunegrid,
+  trControl = ctrl
+)
+
+# Best tuning parameter
+modelxg$bestTune
+
+predicted.classes3 <- modelxg %>% predict(train_data2)
+head(predicted.classes3)
+
+confusion_matrix_xg3 <- confusionMatrix(data = predicted.classes3, reference = train_data2$attrition_flag)
+
+predicted.classes <- modelxg %>% predict(test_data2)
+head(predicted.classes)
+
+confusion_matrix_xg <- confusionMatrix(data = predicted.classes, reference = test_data2$attrition_flag)
+
+roc_score=roc(test_data2$attrition_flag, as.numeric(predicted.classes)) ##0.9184
+plot(roc_score)
+help(varImp)
+varImp(modelxg)
+plot(varImp(modelxg))
+
+install.packages("DiagrammeR")
+xgb.plot.tree(model = modelxg$finalModel,trees = 10)
+
+#### with encoding
+
+set.seed(123)
+modelxg2 <- train(
+  attrition_flag ~., data = train_data4, method = "xgbTree",metric ="Kappa",tuneGrid=tunegrid,
+  trControl = ctrl
+)
+# Best tuning parameter
+modelxg2$bestTune
+
+predicted.classes2 <- modelxg2 %>% predict(train_data4)
+head(predicted.classes2)
+
+confusion_matrix_xg2 <- confusionMatrix(data = predicted.classes2, reference = train_data4$attrition_flag)
+
+predicted.classes2.<- modelxg2 %>% predict(test_data4)
+head(predicted.classes2.)
+
+confusion_matrix_xg2. <- confusionMatrix(data = predicted.classes2., reference = test_data4$attrition_flag)
+
+roc_score=roc(test_data4$attrition_flag, as.numeric(predicted.classes2.)) ##0.9184
+plot(roc_score)
+help(varImp)
+varImp(modelxg)
+plot(varImp(modelxg2))
+
+
+xgb.plot.tree(model = modelxg$finalModel,trees = 10)
+
+
+
+```
+NN tune and predict 
+Table 28
+```{r}
+## WİTHOUT ENCODİNG
+set.seed(26)
+model_nn <-train(attrition_flag ~.,  data =train_data2, method = "nnet", trControl = ctrl,preProcess = c("center"))
+model_nn$bestTune #5,,,0,1
+pred_nn = predict(model_nn, newdata = train_data2,type = "raw")
+
+confusion_matrix_nn <- confusionMatrix(data = pred_nn, reference = train_data2$attrition_flag)
+confusion_matrix_nn
+
+pred_nn2 = predict(model_nn, newdata = test_data2,type = "raw")
+
+confusion_matrix_nn2 <- confusionMatrix(data = pred_nn2, reference = test_data2$attrition_flag)
+confusion_matrix_nn2
+
+roc_score2=roc(test_data2$attrition_flag, as.numeric(pred_nn2)) ## 0.8494
+plot(roc_score2)
+plot(model_nn)
+
+model_nn$finalModel
+plotnet(model_nn)
+
+#WİTH ENCODİNG
+
+model_nn2 <-train(attrition_flag ~.,  data =train_data4, method = "nnet", trControl = ctrl,preProcess = c("center"))
+model_nn2$bestTune #5,,,0,1
+pred_nn. = predict(model_nn2, newdata = train_data4,type = "raw")
+
+confusion_matrix_nn. <- confusionMatrix(data = pred_nn., reference = train_data4$attrition_flag)
+confusion_matrix_nn.
+pred_nn.2 = predict(model_nn2, newdata = test_data4,type = "raw")
+
+confusion_matrix_nn.2 <- confusionMatrix(data = pred_nn.2, reference = test_data4$attrition_flag)
+confusion_matrix_nn.2
+roc_score2=roc(test_data4$attrition_flag, as.numeric(pred_nn.2)) ## 0.8494
+plot(roc_score2)
+plot(model_nn)
+
+model_nn$finalModel
+plotnet(model_nn)
+```
+
+
+
+
+
+
